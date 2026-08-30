@@ -188,7 +188,7 @@
     const hideControlsButton = document.querySelector("#hideControls");
     const playPauseButton = document.querySelector("#playPause");
 
-    const state = { x: 0, y: 0, scale: 1 };
+    const state = { x: 0, y: 0, scale: 1, rotation: 0 };
     const pointers = new Map();
     let objectUrl = "";
     let dragStart = null;
@@ -203,7 +203,7 @@
     }
 
     function render() {
-      video.style.transform = `translate(-50%, -50%) translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+      video.style.transform = `translate(-50%, -50%) translate(${state.x}px, ${state.y}px) rotate(${state.rotation}deg) scale(${state.scale})`;
       zoomValue.value = `${Math.round(state.scale * 100)}%`;
       zoomValue.textContent = zoomValue.value;
     }
@@ -217,6 +217,7 @@
       state.x = 0;
       state.y = 0;
       state.scale = 1;
+      state.rotation = 0;
       render();
     }
 
@@ -304,6 +305,17 @@
       return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     }
 
+    function angle(a, b) {
+      return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+    }
+
+    function angleDelta(from, to) {
+      let delta = to - from;
+      while (delta > 180) delta -= 360;
+      while (delta < -180) delta += 360;
+      return delta;
+    }
+
     video.addEventListener("loadedmetadata", fitVideo);
     video.addEventListener("play", () => { updatePlayButton(); showControls(); });
     video.addEventListener("pause", () => { updatePlayButton(); showControls(false); });
@@ -323,7 +335,8 @@
           center: midpoint(a, b),
           scale: state.scale,
           x: state.x,
-          y: state.y
+          y: state.y,
+          angle: angle(a, b)
         };
       }
       showControls();
@@ -343,6 +356,9 @@
         state.x = pinchStart.x + center.x - pinchStart.center.x;
         state.y = pinchStart.y + center.y - pinchStart.center.y;
         state.scale = clamp(pinchStart.scale * distance(a, b) / Math.max(1, pinchStart.distance), 0.1, 8);
+        const nextAngle = angle(a, b);
+        state.rotation += angleDelta(pinchStart.angle, nextAngle);
+        pinchStart.angle = nextAngle;
         render();
       }
     });
