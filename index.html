@@ -108,6 +108,8 @@
 
     button:disabled { opacity: .38; cursor: default; }
 
+    button.active { background: #fff; color: #000; }
+
     button:focus-visible,
     .file-button:focus-within {
       outline: 2px solid #fff;
@@ -172,6 +174,7 @@
     <button id="zoomOut" class="icon-button" type="button" aria-label="Уменьшить видео" title="Уменьшить (−)">−</button>
     <output id="zoomValue" aria-live="polite">100%</output>
     <button id="zoomIn" class="icon-button" type="button" aria-label="Увеличить видео" title="Увеличить (+)">+</button>
+    <button id="mirror" type="button" aria-pressed="false" title="Отзеркалить видео (M)"><span aria-hidden="true">↔</span><span class="button-text">Зеркало</span></button>
     <button id="fullscreen" type="button" title="На весь экран (F)"><span aria-hidden="true">⛶</span><span class="button-text">Весь экран</span></button>
     <button id="hideControls" type="button" title="Скрыть панель"><span aria-hidden="true">⌄</span><span class="button-text">Скрыть</span></button>
   </nav>
@@ -187,8 +190,9 @@
     const fullscreenButton = document.querySelector("#fullscreen");
     const hideControlsButton = document.querySelector("#hideControls");
     const playPauseButton = document.querySelector("#playPause");
+    const mirrorButton = document.querySelector("#mirror");
 
-    const state = { x: 0, y: 0, scale: 1, rotation: 0 };
+    const state = { x: 0, y: 0, scale: 1, rotation: 0, mirrored: false };
     const pointers = new Map();
     let objectUrl = "";
     let dragStart = null;
@@ -203,7 +207,8 @@
     }
 
     function render() {
-      video.style.transform = `translate(-50%, -50%) translate(${state.x}px, ${state.y}px) rotate(${state.rotation}deg) scale(${state.scale})`;
+      const horizontalScale = state.mirrored ? -state.scale : state.scale;
+      video.style.transform = `translate(-50%, -50%) translate(${state.x}px, ${state.y}px) rotate(${state.rotation}deg) scale(${horizontalScale}, ${state.scale})`;
       zoomValue.value = `${Math.round(state.scale * 100)}%`;
       zoomValue.textContent = zoomValue.value;
     }
@@ -218,6 +223,9 @@
       state.y = 0;
       state.scale = 1;
       state.rotation = 0;
+      state.mirrored = false;
+      mirrorButton.classList.remove("active");
+      mirrorButton.setAttribute("aria-pressed", "false");
       render();
     }
 
@@ -261,6 +269,14 @@
       if (!video.src) return;
       if (video.paused || video.ended) video.play();
       else video.pause();
+    }
+
+    function toggleMirror() {
+      state.mirrored = !state.mirrored;
+      mirrorButton.classList.toggle("active", state.mirrored);
+      mirrorButton.setAttribute("aria-pressed", String(state.mirrored));
+      render();
+      showControls();
     }
 
     async function startVideo(file) {
@@ -391,6 +407,7 @@
     document.querySelector("#zoomOut").addEventListener("click", () => { setScale(state.scale / 1.15); showControls(); });
     document.querySelector("#zoomIn").addEventListener("click", () => { setScale(state.scale * 1.15); showControls(); });
     playPauseButton.addEventListener("click", togglePlayback);
+    mirrorButton.addEventListener("click", toggleMirror);
     fullscreenButton.addEventListener("click", toggleFullscreen);
     hideControlsButton.addEventListener("click", hideControls);
 
@@ -423,6 +440,7 @@
       if (event.key.toLowerCase() === "f") toggleFullscreen();
       if (event.key === "+" || event.key === "=") setScale(state.scale * 1.15);
       if (event.key === "-" || event.key === "_") setScale(state.scale / 1.15);
+      if (event.key.toLowerCase() === "m") toggleMirror();
       if (event.key.toLowerCase() === "h") {
         manuallyHidden ? showControls(true, true) : hideControls();
       }
