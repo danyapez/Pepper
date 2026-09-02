@@ -218,6 +218,13 @@
       box-shadow: 0 0 12px rgba(84,229,138,.55);
     }
 
+    .gamepad-activate {
+      width: 100%;
+      margin: -6px 0 16px;
+      background: #fff;
+      color: #000;
+    }
+
     .mapping-list {
       display: grid;
       gap: 8px;
@@ -305,8 +312,9 @@
   <section id="gamepadModal" role="dialog" aria-modal="true" aria-labelledby="gamepadTitle" hidden>
     <div class="gamepad-card">
       <h2 id="gamepadTitle">Nintendo Switch Pro Controller</h2>
-      <p>Сначала подключите контроллер в настройках Bluetooth на iPad, вернитесь сюда и нажмите любую кнопку. Левый стик двигает видео, правый вращает и меняет размер.</p>
+      <p>Профиль использует официальную раскладку Standard Gamepad для Nintendo Pro: левый стик двигает видео, правый вращает и меняет размер. После подключения нажмите «Активировать», затем A или B на контроллере.</p>
       <div id="gamepadStatus" class="gamepad-status">Геймпад не найден — нажмите на нём любую кнопку</div>
+      <button id="activateGamepad" class="gamepad-activate" type="button">Активировать геймпад</button>
 
       <div class="mapping-list">
         <div class="mapping-row"><strong>Движение видео</strong><output id="mapMove"></output><button class="bind-button" type="button" data-bind="moveStick">Назначить</button></div>
@@ -340,18 +348,25 @@
     const gamepadModal = document.querySelector("#gamepadModal");
     const gamepadStatus = document.querySelector("#gamepadStatus");
     const captureHint = document.querySelector("#captureHint");
+    const activateGamepadButton = document.querySelector("#activateGamepad");
 
     const DEFAULT_GAMEPAD_MAPPING = {
       moveX: 0,
       moveY: 1,
       rotate: 2,
       zoom: 3,
-      play: 0,
+      play: 1,
       mirror: 2,
       controls: 3,
-      reset: 1,
+      reset: 0,
       fullscreen: 9
     };
+
+    const NINTENDO_BUTTON_NAMES = [
+      "B", "A", "Y", "X", "L", "R", "ZL", "ZR", "−", "+",
+      "Нажатие L-стика", "Нажатие R-стика", "Крестовина ↑", "Крестовина ↓",
+      "Крестовина ←", "Крестовина →", "HOME"
+    ];
 
     const BINDINGS = {
       moveStick: { type: "stick", x: "moveX", y: "moveY", output: "mapMove", prompt: "Отклоните нужный стик вправо" },
@@ -379,6 +394,8 @@
     let captureButtonBaseline = [];
     let lastGamepadFrame = performance.now();
     let lastGamepadStatus = "";
+    let gamepadActivationStarted = 0;
+    let gamepadAccessError = "";
 
     function clamp(value, min, max) {
       return Math.min(max, Math.max(min, value));
@@ -477,17 +494,27 @@
 
     function currentGamepad() {
       if (typeof navigator.getGamepads !== "function") return null;
-      const pads = Array.from(navigator.getGamepads()).filter(Boolean);
-      const selected = pads.find((pad) => pad.index === activeGamepadIndex) || pads[0] || null;
-      if (selected) activeGamepadIndex = selected.index;
-      return selected;
+      try {
+        const pads = Array.from(navigator.getGamepads()).filter(Boolean);
+        const selected = pads.find((pad) => pad.index === activeGamepadIndex) || pads[0] || null;
+        if (selected) activeGamepadIndex = selected.index;
+        gamepadAccessError = "";
+        return selected;
+      } catch (error) {
+        gamepadAccessError = error && error.message ? error.message : "доступ запрещён";
+        return null;
+      }
     }
 
     function setGamepadStatus(pad) {
       const text = typeof navigator.getGamepads !== "function"
         ? "Этот браузер не поддерживает геймпады"
+        : gamepadAccessError
+          ? `Chrome запретил доступ: ${gamepadAccessError}`
         : pad
           ? `Подключён: ${pad.id || "Nintendo Pro Controller"}`
+          : gamepadActivationStarted && performance.now() - gamepadActivationStarted > 5000 && location.protocol === "file:"
+            ? "Chrome не передаёт геймпад локальному файлу — нужна HTTPS-ссылка"
           : "Геймпад не найден — нажмите на нём любую кнопку";
       if (text === lastGamepadStatus) return;
       lastGamepadStatus = text;
@@ -496,14 +523,30 @@
       gamepadSettingsButton.classList.toggle("active", Boolean(pad));
     }
 
+    function activateGamepad() {
+      gamepadActivationStarted = performance.now();
+      activeGamepadIndex = null;
+      previousGamepadButtons = [];
+      lastGamepadStatus = "";
+      document.body.tabIndex = -1;
+      document.body.focus({ preventScroll: true });
+      window.focus();
+      gamepadStatus.textContent = "Теперь нажмите A или B на контроллере и подвигайте стики";
+      captureHint.textContent = "Chrome покажет геймпад только после нажатия кнопки на нём";
+    }
+
     function renderGamepadMapping() {
       document.querySelector("#mapMove").textContent = `оси ${gamepadMapping.moveX} / ${gamepadMapping.moveY}`;
       document.querySelector("#mapTransform").textContent = `оси ${gamepadMapping.rotate} / ${gamepadMapping.zoom}`;
-      document.querySelector("#mapPlay").textContent = `кнопка ${gamepadMapping.play}`;
-      document.querySelector("#mapMirror").textContent = `кнопка ${gamepadMapping.mirror}`;
-      document.querySelector("#mapControls").textContent = `кнопка ${gamepadMapping.controls}`;
-      document.querySelector("#mapReset").textContent = `кнопка ${gamepadMapping.reset}`;
-      document.querySelector("#mapFullscreen").textContent = `кнопка ${gamepadMapping.fullscreen}`;
+      document.querySelector("#mapPlay").textContent = buttonLabel(gamepadMapping.play);
+      document.querySelector("#mapMirror").textContent = buttonLabel(gamepadMapping.mirror);
+      document.querySelector("#mapControls").textContent = buttonLabel(gamepadMapping.controls);
+      document.querySelector("#mapReset").textContent = buttonLabel(gamepadMapping.reset);
+      document.querySelector("#mapFullscreen").textContent = buttonLabel(gamepadMapping.fullscreen);
+    }
+
+    function buttonLabel(index) {
+      return `${NINTENDO_BUTTON_NAMES[index] || "Кнопка"} · ${index}`;
     }
 
     function openGamepadSettings() {
@@ -566,7 +609,7 @@
         captureButtonBaseline = pad.buttons.map((button) => button.pressed);
         if (index < 0) return true;
         gamepadMapping[binding.config.key] = index;
-        finishBinding(`Назначена кнопка ${index}`);
+        finishBinding(`Назначено: ${buttonLabel(index)}`);
         return true;
       }
 
@@ -643,9 +686,10 @@
             const rotate = axisValue(pad, gamepadMapping.rotate);
             const zoom = axisValue(pad, gamepadMapping.zoom);
             if (moveX || moveY || rotate || zoom) {
-              state.x += moveX * 520 * elapsed;
+              const mirrorDirection = state.mirrored ? -1 : 1;
+              state.x += moveX * mirrorDirection * 520 * elapsed;
               state.y += moveY * 520 * elapsed;
-              state.rotation += rotate * 150 * elapsed;
+              state.rotation += rotate * mirrorDirection * 150 * elapsed;
               state.scale = clamp(state.scale * Math.exp(-zoom * 1.35 * elapsed), 0.1, 8);
               render();
             }
@@ -789,6 +833,7 @@
     playPauseButton.addEventListener("click", togglePlayback);
     mirrorButton.addEventListener("click", toggleMirror);
     gamepadSettingsButton.addEventListener("click", openGamepadSettings);
+    activateGamepadButton.addEventListener("click", activateGamepad);
     fullscreenButton.addEventListener("click", toggleFullscreen);
     hideControlsButton.addEventListener("click", hideControls);
 
