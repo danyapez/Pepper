@@ -66,7 +66,10 @@
       left: 50%;
       bottom: max(18px, env(safe-area-inset-bottom));
       display: flex;
+      max-width: calc(100vw - 20px);
       align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
       gap: 7px;
       padding: 7px;
       border: 1px solid rgba(255,255,255,.14);
@@ -148,10 +151,127 @@
 
     body.file-drag #dropOverlay { display: grid; }
 
+    #gamepadModal[hidden] { display: none !important; }
+
+    #gamepadModal {
+      position: fixed;
+      z-index: 30;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+      background: rgba(0,0,0,.78);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      touch-action: pan-y;
+    }
+
+    .gamepad-card {
+      width: min(680px, 100%);
+      max-height: 100%;
+      overflow: auto;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,.17);
+      border-radius: 18px;
+      background: #101010;
+      box-shadow: 0 22px 70px rgba(0,0,0,.65);
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .gamepad-card h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .gamepad-card p {
+      margin: 8px 0 16px;
+      color: rgba(255,255,255,.62);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .gamepad-status {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 16px;
+      padding: 11px 12px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.72);
+      font-size: 13px;
+    }
+
+    .gamepad-status::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: #ff9d45;
+      box-shadow: 0 0 12px rgba(255,157,69,.55);
+    }
+
+    .gamepad-status.connected::before {
+      background: #54e58a;
+      box-shadow: 0 0 12px rgba(84,229,138,.55);
+    }
+
+    .mapping-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .mapping-row {
+      display: grid;
+      grid-template-columns: minmax(135px, 1fr) minmax(110px, auto) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 52px;
+      padding: 7px 7px 7px 12px;
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 11px;
+      background: rgba(255,255,255,.035);
+    }
+
+    .mapping-row strong { font-size: 13px; }
+
+    .mapping-row output {
+      color: rgba(255,255,255,.58);
+      font: 600 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-align: right;
+    }
+
+    .bind-button { min-width: 112px; }
+    .bind-button.waiting { background: #fff; color: #000; }
+
+    #captureHint {
+      min-height: 22px;
+      margin: 13px 0 0;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .modal-actions button:last-child { background: #fff; color: #000; }
+
     @media (max-width: 560px) {
       #controls { bottom: max(10px, env(safe-area-inset-bottom)); }
       .button-text { display: none; }
       button, .file-button { padding: 0 11px; }
+      .gamepad-card { padding: 15px; }
+      .mapping-row { grid-template-columns: 1fr auto; }
+      .mapping-row output { grid-column: 1; grid-row: 2; text-align: left; }
+      .mapping-row .bind-button { grid-column: 2; grid-row: 1 / span 2; }
     }
 
     @media (pointer: coarse) {
@@ -175,11 +295,36 @@
     <output id="zoomValue" aria-live="polite">100%</output>
     <button id="zoomIn" class="icon-button" type="button" aria-label="Увеличить видео" title="Увеличить (+)">+</button>
     <button id="mirror" type="button" aria-pressed="false" title="Отзеркалить видео (M)"><span aria-hidden="true">↔</span><span class="button-text">Зеркало</span></button>
+    <button id="gamepadSettings" type="button" title="Настроить геймпад Nintendo Pro"><span aria-hidden="true">🎮</span><span class="button-text">Геймпад</span></button>
     <button id="fullscreen" type="button" title="На весь экран (F)"><span aria-hidden="true">⛶</span><span class="button-text">Весь экран</span></button>
     <button id="hideControls" type="button" title="Скрыть панель"><span aria-hidden="true">⌄</span><span class="button-text">Скрыть</span></button>
   </nav>
 
   <div id="dropOverlay">Отпустите видео</div>
+
+  <section id="gamepadModal" role="dialog" aria-modal="true" aria-labelledby="gamepadTitle" hidden>
+    <div class="gamepad-card">
+      <h2 id="gamepadTitle">Nintendo Switch Pro Controller</h2>
+      <p>Сначала подключите контроллер в настройках Bluetooth на iPad, вернитесь сюда и нажмите любую кнопку. Левый стик двигает видео, правый вращает и меняет размер.</p>
+      <div id="gamepadStatus" class="gamepad-status">Геймпад не найден — нажмите на нём любую кнопку</div>
+
+      <div class="mapping-list">
+        <div class="mapping-row"><strong>Движение видео</strong><output id="mapMove"></output><button class="bind-button" type="button" data-bind="moveStick">Назначить</button></div>
+        <div class="mapping-row"><strong>Вращение и размер</strong><output id="mapTransform"></output><button class="bind-button" type="button" data-bind="transformStick">Назначить</button></div>
+        <div class="mapping-row"><strong>Пуск / пауза</strong><output id="mapPlay"></output><button class="bind-button" type="button" data-bind="play">Назначить</button></div>
+        <div class="mapping-row"><strong>Зеркало</strong><output id="mapMirror"></output><button class="bind-button" type="button" data-bind="mirror">Назначить</button></div>
+        <div class="mapping-row"><strong>Скрыть / показать панель</strong><output id="mapControls"></output><button class="bind-button" type="button" data-bind="controls">Назначить</button></div>
+        <div class="mapping-row"><strong>Сбросить положение</strong><output id="mapReset"></output><button class="bind-button" type="button" data-bind="reset">Назначить</button></div>
+        <div class="mapping-row"><strong>Полный экран</strong><output id="mapFullscreen"></output><button class="bind-button" type="button" data-bind="fullscreen">Назначить</button></div>
+      </div>
+
+      <div id="captureHint" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button id="resetGamepad" type="button">Стандартная раскладка</button>
+        <button id="closeGamepad" type="button">Готово</button>
+      </div>
+    </div>
+  </section>
 
   <script>
     "use strict";
@@ -191,6 +336,32 @@
     const hideControlsButton = document.querySelector("#hideControls");
     const playPauseButton = document.querySelector("#playPause");
     const mirrorButton = document.querySelector("#mirror");
+    const gamepadSettingsButton = document.querySelector("#gamepadSettings");
+    const gamepadModal = document.querySelector("#gamepadModal");
+    const gamepadStatus = document.querySelector("#gamepadStatus");
+    const captureHint = document.querySelector("#captureHint");
+
+    const DEFAULT_GAMEPAD_MAPPING = {
+      moveX: 0,
+      moveY: 1,
+      rotate: 2,
+      zoom: 3,
+      play: 0,
+      mirror: 2,
+      controls: 3,
+      reset: 1,
+      fullscreen: 9
+    };
+
+    const BINDINGS = {
+      moveStick: { type: "stick", x: "moveX", y: "moveY", output: "mapMove", prompt: "Отклоните нужный стик вправо" },
+      transformStick: { type: "stick", x: "rotate", y: "zoom", output: "mapTransform", prompt: "Отклоните нужный стик вправо" },
+      play: { type: "button", key: "play", output: "mapPlay", prompt: "Нажмите кнопку Пуск / Пауза" },
+      mirror: { type: "button", key: "mirror", output: "mapMirror", prompt: "Нажмите кнопку Зеркало" },
+      controls: { type: "button", key: "controls", output: "mapControls", prompt: "Нажмите кнопку скрытия панели" },
+      reset: { type: "button", key: "reset", output: "mapReset", prompt: "Нажмите кнопку сброса положения" },
+      fullscreen: { type: "button", key: "fullscreen", output: "mapFullscreen", prompt: "Нажмите кнопку полного экрана" }
+    };
 
     const state = { x: 0, y: 0, scale: 1, rotation: 0, mirrored: false };
     const pointers = new Map();
@@ -201,6 +372,13 @@
     let dragDepth = 0;
     let manuallyHidden = false;
     let hiddenTapStart = null;
+    let gamepadMapping = loadGamepadMapping();
+    let activeGamepadIndex = null;
+    let pendingBinding = null;
+    let previousGamepadButtons = [];
+    let captureButtonBaseline = [];
+    let lastGamepadFrame = performance.now();
+    let lastGamepadStatus = "";
 
     function clamp(value, min, max) {
       return Math.min(max, Math.max(min, value));
@@ -245,7 +423,7 @@
       if (force) manuallyHidden = false;
       document.body.classList.remove("controls-hidden");
       window.clearTimeout(controlsTimer);
-      if (autoHide && !video.paused && video.src) {
+      if (autoHide && !video.paused && video.src && gamepadModal.hidden) {
         controlsTimer = window.setTimeout(() => {
           document.body.classList.add("controls-hidden");
         }, 2400);
@@ -277,6 +455,208 @@
       mirrorButton.setAttribute("aria-pressed", String(state.mirrored));
       render();
       showControls();
+    }
+
+    function loadGamepadMapping() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("pepperGhostGamepad") || "null");
+        if (!saved || typeof saved !== "object") return { ...DEFAULT_GAMEPAD_MAPPING };
+        const result = { ...DEFAULT_GAMEPAD_MAPPING };
+        for (const key of Object.keys(result)) {
+          if (Number.isInteger(saved[key]) && saved[key] >= 0) result[key] = saved[key];
+        }
+        return result;
+      } catch (_) {
+        return { ...DEFAULT_GAMEPAD_MAPPING };
+      }
+    }
+
+    function saveGamepadMapping() {
+      try { localStorage.setItem("pepperGhostGamepad", JSON.stringify(gamepadMapping)); } catch (_) {}
+    }
+
+    function currentGamepad() {
+      if (typeof navigator.getGamepads !== "function") return null;
+      const pads = Array.from(navigator.getGamepads()).filter(Boolean);
+      const selected = pads.find((pad) => pad.index === activeGamepadIndex) || pads[0] || null;
+      if (selected) activeGamepadIndex = selected.index;
+      return selected;
+    }
+
+    function setGamepadStatus(pad) {
+      const text = typeof navigator.getGamepads !== "function"
+        ? "Этот браузер не поддерживает геймпады"
+        : pad
+          ? `Подключён: ${pad.id || "Nintendo Pro Controller"}`
+          : "Геймпад не найден — нажмите на нём любую кнопку";
+      if (text === lastGamepadStatus) return;
+      lastGamepadStatus = text;
+      gamepadStatus.textContent = text;
+      gamepadStatus.classList.toggle("connected", Boolean(pad));
+      gamepadSettingsButton.classList.toggle("active", Boolean(pad));
+    }
+
+    function renderGamepadMapping() {
+      document.querySelector("#mapMove").textContent = `оси ${gamepadMapping.moveX} / ${gamepadMapping.moveY}`;
+      document.querySelector("#mapTransform").textContent = `оси ${gamepadMapping.rotate} / ${gamepadMapping.zoom}`;
+      document.querySelector("#mapPlay").textContent = `кнопка ${gamepadMapping.play}`;
+      document.querySelector("#mapMirror").textContent = `кнопка ${gamepadMapping.mirror}`;
+      document.querySelector("#mapControls").textContent = `кнопка ${gamepadMapping.controls}`;
+      document.querySelector("#mapReset").textContent = `кнопка ${gamepadMapping.reset}`;
+      document.querySelector("#mapFullscreen").textContent = `кнопка ${gamepadMapping.fullscreen}`;
+    }
+
+    function openGamepadSettings() {
+      manuallyHidden = false;
+      document.body.classList.remove("controls-hidden");
+      window.clearTimeout(controlsTimer);
+      gamepadModal.hidden = false;
+      renderGamepadMapping();
+      setGamepadStatus(currentGamepad());
+    }
+
+    function cancelBinding() {
+      pendingBinding = null;
+      captureHint.textContent = "";
+      document.querySelectorAll(".bind-button").forEach((button) => {
+        button.classList.remove("waiting");
+        button.textContent = "Назначить";
+      });
+    }
+
+    function closeGamepadSettings() {
+      cancelBinding();
+      gamepadModal.hidden = true;
+      showControls();
+    }
+
+    function beginBinding(name, button) {
+      const config = BINDINGS[name];
+      if (!config) return;
+      cancelBinding();
+      const pad = currentGamepad();
+      if (!pad) {
+        captureHint.textContent = "Сначала подключите геймпад и нажмите на нём любую кнопку";
+        return;
+      }
+      pendingBinding = { name, config, stage: config.type === "stick" ? "x" : "button", xAxis: null };
+      captureButtonBaseline = pad.buttons.map((item) => item.pressed);
+      button.classList.add("waiting");
+      button.textContent = "Жду…";
+      captureHint.textContent = config.prompt;
+    }
+
+    function finishBinding(message) {
+      saveGamepadMapping();
+      renderGamepadMapping();
+      pendingBinding = null;
+      document.querySelectorAll(".bind-button").forEach((button) => {
+        button.classList.remove("waiting");
+        button.textContent = "Назначить";
+      });
+      captureHint.textContent = message;
+    }
+
+    function captureGamepadInput(pad) {
+      if (!pendingBinding) return false;
+      const binding = pendingBinding;
+
+      if (binding.config.type === "button") {
+        const index = pad.buttons.findIndex((button, buttonIndex) => button.pressed && !captureButtonBaseline[buttonIndex]);
+        captureButtonBaseline = pad.buttons.map((button) => button.pressed);
+        if (index < 0) return true;
+        gamepadMapping[binding.config.key] = index;
+        finishBinding(`Назначена кнопка ${index}`);
+        return true;
+      }
+
+      if (binding.stage === "waitNeutral") {
+        if (pad.axes.every((value) => Math.abs(value) < 0.25)) {
+          binding.stage = "y";
+          captureHint.textContent = "Теперь отклоните этот же стик вниз";
+        }
+        return true;
+      }
+
+      let strongestAxis = -1;
+      let strongestValue = 0.65;
+      pad.axes.forEach((value, index) => {
+        if (Math.abs(value) > strongestValue && index !== binding.xAxis) {
+          strongestValue = Math.abs(value);
+          strongestAxis = index;
+        }
+      });
+      if (strongestAxis < 0) return true;
+
+      if (binding.stage === "x") {
+        binding.xAxis = strongestAxis;
+        binding.stage = "waitNeutral";
+        captureHint.textContent = "Отпустите стик";
+      } else {
+        gamepadMapping[binding.config.x] = binding.xAxis;
+        gamepadMapping[binding.config.y] = strongestAxis;
+        finishBinding(`Назначены оси ${binding.xAxis} / ${strongestAxis}`);
+      }
+      return true;
+    }
+
+    function axisValue(pad, index) {
+      const raw = Number(pad.axes[index] || 0);
+      const deadzone = 0.16;
+      if (Math.abs(raw) <= deadzone) return 0;
+      return Math.sign(raw) * (Math.abs(raw) - deadzone) / (1 - deadzone);
+    }
+
+    function toggleGamepadControls() {
+      const hidden = manuallyHidden || document.body.classList.contains("controls-hidden");
+      hidden ? showControls(true, true) : hideControls();
+    }
+
+    function runGamepadActions(pad) {
+      const actions = [
+        [gamepadMapping.play, togglePlayback],
+        [gamepadMapping.mirror, toggleMirror],
+        [gamepadMapping.controls, toggleGamepadControls],
+        [gamepadMapping.reset, resetPlacement],
+        [gamepadMapping.fullscreen, toggleFullscreen]
+      ];
+      for (const [index, action] of actions) {
+        const pressed = Boolean(pad.buttons[index] && pad.buttons[index].pressed);
+        if (pressed && !previousGamepadButtons[index]) action();
+      }
+      previousGamepadButtons = pad.buttons.map((button) => button.pressed);
+    }
+
+    function pollGamepad(timestamp) {
+      const elapsed = Math.min(0.05, Math.max(0, (timestamp - lastGamepadFrame) / 1000));
+      lastGamepadFrame = timestamp;
+      const pad = currentGamepad();
+      setGamepadStatus(pad);
+
+      if (pad) {
+        if (captureGamepadInput(pad)) {
+          previousGamepadButtons = pad.buttons.map((button) => button.pressed);
+        } else {
+          if (video.src) {
+            const moveX = axisValue(pad, gamepadMapping.moveX);
+            const moveY = axisValue(pad, gamepadMapping.moveY);
+            const rotate = axisValue(pad, gamepadMapping.rotate);
+            const zoom = axisValue(pad, gamepadMapping.zoom);
+            if (moveX || moveY || rotate || zoom) {
+              state.x += moveX * 520 * elapsed;
+              state.y += moveY * 520 * elapsed;
+              state.rotation += rotate * 150 * elapsed;
+              state.scale = clamp(state.scale * Math.exp(-zoom * 1.35 * elapsed), 0.1, 8);
+              render();
+            }
+          }
+          runGamepadActions(pad);
+        }
+      } else {
+        previousGamepadButtons = [];
+      }
+
+      requestAnimationFrame(pollGamepad);
     }
 
     async function startVideo(file) {
@@ -408,8 +788,21 @@
     document.querySelector("#zoomIn").addEventListener("click", () => { setScale(state.scale * 1.15); showControls(); });
     playPauseButton.addEventListener("click", togglePlayback);
     mirrorButton.addEventListener("click", toggleMirror);
+    gamepadSettingsButton.addEventListener("click", openGamepadSettings);
     fullscreenButton.addEventListener("click", toggleFullscreen);
     hideControlsButton.addEventListener("click", hideControls);
+
+    document.querySelectorAll(".bind-button").forEach((button) => {
+      button.addEventListener("click", () => beginBinding(button.dataset.bind, button));
+    });
+    document.querySelector("#resetGamepad").addEventListener("click", () => {
+      gamepadMapping = { ...DEFAULT_GAMEPAD_MAPPING };
+      saveGamepadMapping();
+      cancelBinding();
+      renderGamepadMapping();
+      captureHint.textContent = "Стандартная раскладка Nintendo Pro восстановлена";
+    });
+    document.querySelector("#closeGamepad").addEventListener("click", closeGamepadSettings);
 
     document.addEventListener("fullscreenchange", updateFullscreenLabel);
     document.addEventListener("webkitfullscreenchange", updateFullscreenLabel);
@@ -437,6 +830,10 @@
     });
 
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !gamepadModal.hidden) {
+        closeGamepadSettings();
+        return;
+      }
       if (event.key.toLowerCase() === "f") toggleFullscreen();
       if (event.key === "+" || event.key === "=") setScale(state.scale * 1.15);
       if (event.key === "-" || event.key === "_") setScale(state.scale / 1.15);
@@ -476,7 +873,23 @@
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     });
 
+    window.addEventListener("gamepadconnected", (event) => {
+      activeGamepadIndex = event.gamepad.index;
+      previousGamepadButtons = [];
+      lastGamepadStatus = "";
+      setGamepadStatus(event.gamepad);
+    });
+
+    window.addEventListener("gamepaddisconnected", (event) => {
+      if (activeGamepadIndex === event.gamepad.index) activeGamepadIndex = null;
+      previousGamepadButtons = [];
+      lastGamepadStatus = "";
+      setGamepadStatus(currentGamepad());
+    });
+
     updatePlayButton();
+    renderGamepadMapping();
+    requestAnimationFrame(pollGamepad);
     render();
   </script>
 </body>
