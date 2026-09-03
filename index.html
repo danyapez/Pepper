@@ -214,8 +214,18 @@
     }
 
     .gamepad-status.connected::before {
+      background: #68a8ff;
+      box-shadow: 0 0 12px rgba(104,168,255,.55);
+    }
+
+    .gamepad-status.ready::before {
       background: #54e58a;
       box-shadow: 0 0 12px rgba(84,229,138,.55);
+    }
+
+    .gamepad-status.error::before {
+      background: #ff5d5d;
+      box-shadow: 0 0 12px rgba(255,93,93,.55);
     }
 
     .gamepad-activate {
@@ -224,6 +234,68 @@
       background: #fff;
       color: #000;
     }
+
+    .gamepad-steps {
+      margin: 0 0 16px;
+      padding: 12px 12px 12px 32px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.045);
+      color: rgba(255,255,255,.72);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .gamepad-steps li + li { margin-top: 3px; }
+
+    .gamepad-live {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+      margin: 0 0 16px;
+    }
+
+    .gamepad-live span {
+      overflow: hidden;
+      padding: 8px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.055);
+      color: rgba(255,255,255,.52);
+      font-size: 11px;
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .gamepad-live b {
+      display: block;
+      margin-top: 4px;
+      color: #fff;
+      font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    #toast {
+      position: fixed;
+      z-index: 40;
+      left: 50%;
+      top: max(18px, env(safe-area-inset-top));
+      width: max-content;
+      max-width: calc(100vw - 28px);
+      padding: 11px 14px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 11px;
+      background: rgba(18,18,18,.92);
+      box-shadow: 0 10px 36px rgba(0,0,0,.5);
+      color: #fff;
+      font-size: 13px;
+      line-height: 1.35;
+      text-align: center;
+      transform: translate(-50%, -12px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+    }
+
+    #toast.visible { opacity: 1; transform: translate(-50%, 0); }
 
     .mapping-list {
       display: grid;
@@ -279,6 +351,7 @@
       .mapping-row { grid-template-columns: 1fr auto; }
       .mapping-row output { grid-column: 1; grid-row: 2; text-align: left; }
       .mapping-row .bind-button { grid-column: 2; grid-row: 1 / span 2; }
+      .gamepad-live { grid-template-columns: 1fr; }
     }
 
     @media (pointer: coarse) {
@@ -308,13 +381,25 @@
   </nav>
 
   <div id="dropOverlay">Отпустите видео</div>
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <section id="gamepadModal" role="dialog" aria-modal="true" aria-labelledby="gamepadTitle" hidden>
     <div class="gamepad-card">
       <h2 id="gamepadTitle">Nintendo Switch Pro Controller</h2>
-      <p>Профиль использует официальную раскладку Standard Gamepad для Nintendo Pro: левый стик двигает видео, правый вращает и меняет размер. После подключения нажмите «Активировать», затем A или B на контроллере.</p>
+      <p>Готово для Safari на iPadOS. Левый стик двигает видео, правый вращает и меняет размер. Настройки сохраняются на этом устройстве.</p>
       <div id="gamepadStatus" class="gamepad-status">Геймпад не найден — нажмите на нём любую кнопку</div>
-      <button id="activateGamepad" class="gamepad-activate" type="button">Активировать геймпад</button>
+      <ol class="gamepad-steps">
+        <li>Подключите Pro Controller в «Настройки → Bluetooth» на iPad.</li>
+        <li>Нажмите «Активировать», затем любую кнопку на геймпаде.</li>
+        <li>Отпустите стики и кнопки — статус сменится на «Готов».</li>
+      </ol>
+      <button id="activateGamepad" class="gamepad-activate" type="button">Активировать на iPad</button>
+
+      <div id="gamepadLive" class="gamepad-live" hidden>
+        <span>Левый стик<b id="liveMove">0.00 / 0.00</b></span>
+        <span>Правый стик<b id="liveTransform">0.00 / 0.00</b></span>
+        <span>Кнопка<b id="liveButton">—</b></span>
+      </div>
 
       <div class="mapping-list">
         <div class="mapping-row"><strong>Движение видео</strong><output id="mapMove"></output><button class="bind-button" type="button" data-bind="moveStick">Назначить</button></div>
@@ -349,6 +434,11 @@
     const gamepadStatus = document.querySelector("#gamepadStatus");
     const captureHint = document.querySelector("#captureHint");
     const activateGamepadButton = document.querySelector("#activateGamepad");
+    const gamepadLive = document.querySelector("#gamepadLive");
+    const liveMove = document.querySelector("#liveMove");
+    const liveTransform = document.querySelector("#liveTransform");
+    const liveButton = document.querySelector("#liveButton");
+    const toast = document.querySelector("#toast");
 
     const DEFAULT_GAMEPAD_MAPPING = {
       moveX: 0,
@@ -396,9 +486,21 @@
     let lastGamepadStatus = "";
     let gamepadActivationStarted = 0;
     let gamepadAccessError = "";
+    let activeGamepadSignature = "";
+    let gamepadArmed = false;
+    let neutralGamepadFrames = 0;
+    let lastGamepadLiveUpdate = 0;
+    let toastTimer = 0;
 
     function clamp(value, min, max) {
       return Math.min(max, Math.max(min, value));
+    }
+
+    function showToast(message, duration = 2600) {
+      toast.textContent = message;
+      toast.classList.add("visible");
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => toast.classList.remove("visible"), duration);
     }
 
     function render() {
@@ -460,10 +562,14 @@
       playPauseButton.querySelector(".play-text").textContent = playing ? "Пауза" : "Пуск";
     }
 
-    function togglePlayback() {
+    async function togglePlayback() {
       if (!video.src) return;
-      if (video.paused || video.ended) video.play();
-      else video.pause();
+      if (video.paused || video.ended) {
+        try { await video.play(); }
+        catch (_) { showToast("Коснитесь кнопки «Пуск» на экране один раз"); }
+      } else {
+        video.pause();
+      }
     }
 
     function toggleMirror() {
@@ -492,12 +598,31 @@
       try { localStorage.setItem("pepperGhostGamepad", JSON.stringify(gamepadMapping)); } catch (_) {}
     }
 
+    function gamepadSignature(pad) {
+      return `${pad.index}|${pad.id}|${pad.mapping}|${pad.buttons.length}|${pad.axes.length}`;
+    }
+
+    function prepareGamepad(pad) {
+      const signature = gamepadSignature(pad);
+      if (signature === activeGamepadSignature) return;
+      activeGamepadSignature = signature;
+      activeGamepadIndex = pad.index;
+      previousGamepadButtons = pad.buttons.map((button) => Boolean(button.pressed));
+      gamepadArmed = false;
+      neutralGamepadFrames = 0;
+      lastGamepadStatus = "";
+      gamepadLive.hidden = false;
+    }
+
     function currentGamepad() {
       if (typeof navigator.getGamepads !== "function") return null;
       try {
         const pads = Array.from(navigator.getGamepads()).filter(Boolean);
-        const selected = pads.find((pad) => pad.index === activeGamepadIndex) || pads[0] || null;
-        if (selected) activeGamepadIndex = selected.index;
+        const selected = pads.find((pad) => pad.index === activeGamepadIndex)
+          || pads.find((pad) => /nintendo|switch|pro controller/i.test(pad.id))
+          || pads[0]
+          || null;
+        if (selected) prepareGamepad(selected);
         gamepadAccessError = "";
         return selected;
       } catch (error) {
@@ -507,32 +632,48 @@
     }
 
     function setGamepadStatus(pad) {
-      const text = typeof navigator.getGamepads !== "function"
-        ? "Этот браузер не поддерживает геймпады"
+      const insecureHost = !window.isSecureContext && location.protocol !== "file:";
+      const text = insecureHost
+        ? "Для геймпада откройте страницу по HTTPS (не по обычному HTTP)"
+        : typeof navigator.getGamepads !== "function"
+        ? "Этот браузер не поддерживает Gamepad API — откройте файл в Safari"
         : gamepadAccessError
-          ? `Chrome запретил доступ: ${gamepadAccessError}`
+          ? `Safari запретил доступ: ${gamepadAccessError}`
         : pad
-          ? `Подключён: ${pad.id || "Nintendo Pro Controller"}`
-          : gamepadActivationStarted && performance.now() - gamepadActivationStarted > 5000 && location.protocol === "file:"
-            ? "Chrome не передаёт геймпад локальному файлу — нужна HTTPS-ссылка"
-          : "Геймпад не найден — нажмите на нём любую кнопку";
+          ? gamepadArmed
+            ? `Готов · ${pad.id || "Nintendo Pro Controller"}`
+            : "Контроллер найден — отпустите кнопки и стики"
+          : gamepadActivationStarted && performance.now() - gamepadActivationStarted > 6000
+            ? "Не найден. Проверьте Bluetooth и снова нажмите кнопку на геймпаде"
+            : "Геймпад не найден — нажмите на нём любую кнопку";
       if (text === lastGamepadStatus) return;
       lastGamepadStatus = text;
       gamepadStatus.textContent = text;
       gamepadStatus.classList.toggle("connected", Boolean(pad));
+      gamepadStatus.classList.toggle("ready", Boolean(pad && gamepadArmed));
+      gamepadStatus.classList.toggle("error", Boolean(gamepadAccessError || insecureHost));
       gamepadSettingsButton.classList.toggle("active", Boolean(pad));
+      activateGamepadButton.textContent = pad && gamepadArmed ? "Геймпад активирован" : "Активировать на iPad";
     }
 
     function activateGamepad() {
       gamepadActivationStarted = performance.now();
-      activeGamepadIndex = null;
-      previousGamepadButtons = [];
+      const pad = currentGamepad();
+      if (pad) {
+        activeGamepadSignature = "";
+        prepareGamepad(pad);
+      } else {
+        activeGamepadIndex = null;
+        activeGamepadSignature = "";
+        previousGamepadButtons = [];
+        gamepadArmed = false;
+      }
       lastGamepadStatus = "";
       document.body.tabIndex = -1;
       document.body.focus({ preventScroll: true });
       window.focus();
-      gamepadStatus.textContent = "Теперь нажмите A или B на контроллере и подвигайте стики";
-      captureHint.textContent = "Chrome покажет геймпад только после нажатия кнопки на нём";
+      gamepadStatus.textContent = "Теперь нажмите любую кнопку на контроллере";
+      captureHint.textContent = "После первого нажатия отпустите все кнопки и стики";
     }
 
     function renderGamepadMapping() {
@@ -582,8 +723,12 @@
         captureHint.textContent = "Сначала подключите геймпад и нажмите на нём любую кнопку";
         return;
       }
+      if (!gamepadArmed) {
+        captureHint.textContent = "Сначала отпустите все кнопки и стики — дождитесь статуса «Готов»";
+        return;
+      }
       pendingBinding = { name, config, stage: config.type === "stick" ? "x" : "button", xAxis: null };
-      captureButtonBaseline = pad.buttons.map((item) => item.pressed);
+      captureButtonBaseline = pad.buttons.map((_, buttonIndex) => buttonPressed(pad, buttonIndex));
       button.classList.add("waiting");
       button.textContent = "Жду…";
       captureHint.textContent = config.prompt;
@@ -605,8 +750,8 @@
       const binding = pendingBinding;
 
       if (binding.config.type === "button") {
-        const index = pad.buttons.findIndex((button, buttonIndex) => button.pressed && !captureButtonBaseline[buttonIndex]);
-        captureButtonBaseline = pad.buttons.map((button) => button.pressed);
+        const index = pad.buttons.findIndex((_, buttonIndex) => buttonPressed(pad, buttonIndex) && !captureButtonBaseline[buttonIndex]);
+        captureButtonBaseline = pad.buttons.map((_, buttonIndex) => buttonPressed(pad, buttonIndex));
         if (index < 0) return true;
         gamepadMapping[binding.config.key] = index;
         finishBinding(`Назначено: ${buttonLabel(index)}`);
@@ -644,10 +789,45 @@
     }
 
     function axisValue(pad, index) {
-      const raw = Number(pad.axes[index] || 0);
+      const raw = clamp(Number(pad.axes[index] || 0), -1, 1);
       const deadzone = 0.16;
       if (Math.abs(raw) <= deadzone) return 0;
-      return Math.sign(raw) * (Math.abs(raw) - deadzone) / (1 - deadzone);
+      const normalized = (Math.abs(raw) - deadzone) / (1 - deadzone);
+      return Math.sign(raw) * normalized * normalized;
+    }
+
+    function buttonPressed(pad, index) {
+      return Boolean(pad.buttons[index] && (pad.buttons[index].pressed || pad.buttons[index].value > 0.5));
+    }
+
+    function gamepadIsNeutral(pad) {
+      return pad.axes.every((value) => Math.abs(Number(value) || 0) < 0.22)
+        && pad.buttons.every((button) => !button.pressed && button.value < 0.5);
+    }
+
+    function armGamepadWhenNeutral(pad) {
+      if (gamepadArmed) return true;
+      neutralGamepadFrames = gamepadIsNeutral(pad) ? neutralGamepadFrames + 1 : 0;
+      if (neutralGamepadFrames < 4) return false;
+      gamepadArmed = true;
+      previousGamepadButtons = pad.buttons.map((button) => Boolean(button.pressed));
+      lastGamepadStatus = "";
+      captureHint.textContent = "Готово — проверьте стики и кнопки";
+      showToast("Nintendo Pro Controller готов");
+      return true;
+    }
+
+    function updateGamepadLive(pad, timestamp) {
+      if (timestamp - lastGamepadLiveUpdate < 80) return;
+      lastGamepadLiveUpdate = timestamp;
+      const moveX = axisValue(pad, gamepadMapping.moveX);
+      const moveY = axisValue(pad, gamepadMapping.moveY);
+      const rotate = axisValue(pad, gamepadMapping.rotate);
+      const zoom = axisValue(pad, gamepadMapping.zoom);
+      const pressedIndex = pad.buttons.findIndex((_, index) => buttonPressed(pad, index));
+      liveMove.textContent = `${moveX.toFixed(2)} / ${moveY.toFixed(2)}`;
+      liveTransform.textContent = `${rotate.toFixed(2)} / ${zoom.toFixed(2)}`;
+      liveButton.textContent = pressedIndex >= 0 ? buttonLabel(pressedIndex) : "—";
     }
 
     function toggleGamepadControls() {
@@ -663,11 +843,15 @@
         [gamepadMapping.reset, resetPlacement],
         [gamepadMapping.fullscreen, toggleFullscreen]
       ];
+      const fired = new Set();
       for (const [index, action] of actions) {
-        const pressed = Boolean(pad.buttons[index] && pad.buttons[index].pressed);
-        if (pressed && !previousGamepadButtons[index]) action();
+        const pressed = buttonPressed(pad, index);
+        if (pressed && !previousGamepadButtons[index] && !fired.has(index)) {
+          fired.add(index);
+          action();
+        }
       }
-      previousGamepadButtons = pad.buttons.map((button) => button.pressed);
+      previousGamepadButtons = pad.buttons.map((_, index) => buttonPressed(pad, index));
     }
 
     function pollGamepad(timestamp) {
@@ -677,12 +861,24 @@
       setGamepadStatus(pad);
 
       if (pad) {
+        updateGamepadLive(pad, timestamp);
+        if (!armGamepadWhenNeutral(pad)) {
+          previousGamepadButtons = pad.buttons.map((_, index) => buttonPressed(pad, index));
+          requestAnimationFrame(pollGamepad);
+          return;
+        }
         if (captureGamepadInput(pad)) {
-          previousGamepadButtons = pad.buttons.map((button) => button.pressed);
+          previousGamepadButtons = pad.buttons.map((_, index) => buttonPressed(pad, index));
+        } else if (!gamepadModal.hidden) {
+          previousGamepadButtons = pad.buttons.map((_, index) => buttonPressed(pad, index));
         } else {
           if (video.src) {
-            const moveX = axisValue(pad, gamepadMapping.moveX);
-            const moveY = axisValue(pad, gamepadMapping.moveY);
+            const stickX = axisValue(pad, gamepadMapping.moveX);
+            const stickY = axisValue(pad, gamepadMapping.moveY);
+            const dpadX = Number(buttonPressed(pad, 15)) - Number(buttonPressed(pad, 14));
+            const dpadY = Number(buttonPressed(pad, 13)) - Number(buttonPressed(pad, 12));
+            const moveX = stickX || dpadX;
+            const moveY = stickY || dpadY;
             const rotate = axisValue(pad, gamepadMapping.rotate);
             const zoom = axisValue(pad, gamepadMapping.zoom);
             if (moveX || moveY || rotate || zoom) {
@@ -698,13 +894,20 @@
         }
       } else {
         previousGamepadButtons = [];
+        gamepadArmed = false;
+        neutralGamepadFrames = 0;
+        activeGamepadSignature = "";
+        gamepadLive.hidden = true;
       }
 
       requestAnimationFrame(pollGamepad);
     }
 
     async function startVideo(file) {
-      if (!file || !file.type.startsWith("video/")) return;
+      if (!file || !(file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|ogv)$/i.test(file.name))) {
+        showToast("Выберите видео MP4, MOV, M4V или WebM");
+        return;
+      }
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       objectUrl = URL.createObjectURL(file);
       video.src = objectUrl;
@@ -720,19 +923,22 @@
         if (!document.fullscreenElement && !document.webkitFullscreenElement) {
           const root = document.documentElement;
           if (root.requestFullscreen) await root.requestFullscreen({ navigationUI: "hide" });
-          else if (root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+          else if (root.webkitRequestFullscreen) await root.webkitRequestFullscreen();
+          else if (video.src && video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+          else throw new Error("fullscreen-unavailable");
         } else if (document.exitFullscreen) {
           await document.exitFullscreen();
         } else if (document.webkitExitFullscreen) {
-          document.webkitExitFullscreen();
+          await document.webkitExitFullscreen();
         }
       } catch (_) {
         showControls(false);
+        showToast("На iPad включите полный экран экранной кнопкой ⛶");
       }
     }
 
     function updateFullscreenLabel() {
-      const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+      const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement || video.webkitDisplayingFullscreen);
       fullscreenButton.querySelector(".button-text").textContent = active ? "Выйти" : "Весь экран";
       showControls();
     }
@@ -851,6 +1057,8 @@
 
     document.addEventListener("fullscreenchange", updateFullscreenLabel);
     document.addEventListener("webkitfullscreenchange", updateFullscreenLabel);
+    video.addEventListener("webkitbeginfullscreen", updateFullscreenLabel);
+    video.addEventListener("webkitendfullscreen", updateFullscreenLabel);
     document.addEventListener("pointermove", (event) => {
       if (event.pointerType === "mouse") showControls();
     });
@@ -869,6 +1077,16 @@
       if (moved < 10 && elapsed < 600) showControls(true, true);
     });
     window.addEventListener("resize", render);
+    document.addEventListener("visibilitychange", () => {
+      lastGamepadFrame = performance.now();
+      if (document.hidden) return;
+      const pad = currentGamepad();
+      if (!pad) return;
+      gamepadArmed = false;
+      neutralGamepadFrames = 0;
+      previousGamepadButtons = pad.buttons.map((_, index) => buttonPressed(pad, index));
+      lastGamepadStatus = "";
+    });
 
     document.addEventListener("dblclick", (event) => {
       if (!event.target.closest("#controls")) toggleFullscreen();
@@ -910,7 +1128,7 @@
       event.preventDefault();
       dragDepth = 0;
       document.body.classList.remove("file-drag");
-      const file = [...event.dataTransfer.files].find((item) => item.type.startsWith("video/"));
+      const file = [...event.dataTransfer.files].find((item) => item.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|ogv)$/i.test(item.name));
       startVideo(file);
     });
 
@@ -920,7 +1138,8 @@
 
     window.addEventListener("gamepadconnected", (event) => {
       activeGamepadIndex = event.gamepad.index;
-      previousGamepadButtons = [];
+      activeGamepadSignature = "";
+      prepareGamepad(event.gamepad);
       lastGamepadStatus = "";
       setGamepadStatus(event.gamepad);
     });
@@ -928,6 +1147,9 @@
     window.addEventListener("gamepaddisconnected", (event) => {
       if (activeGamepadIndex === event.gamepad.index) activeGamepadIndex = null;
       previousGamepadButtons = [];
+      activeGamepadSignature = "";
+      gamepadArmed = false;
+      neutralGamepadFrames = 0;
       lastGamepadStatus = "";
       setGamepadStatus(currentGamepad());
     });
